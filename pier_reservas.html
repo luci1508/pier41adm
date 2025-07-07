@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PIER 41 - Gerenciamento de Reservas</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Estilos adicionais para o modal */
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 1000; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgba(0,0,0,0.5); /* Black w/ opacity */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-2xl bg-white rounded-lg shadow-xl p-6">
+        <!-- O conteúdo do aplicativo será renderizado aqui pelo JavaScript -->
+    </div>
+
+    <!-- Modal de Mensagens Personalizado -->
+    <div id="customModal" class="modal hidden">
+        <div class="modal-content">
+            <p id="modalMessage" class="text-lg mb-4"></p>
+            <div id="modalActions" class="flex justify-around">
+                <button id="modalConfirmBtn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition duration-200 hidden">Sim</button>
+                <button id="modalCancelBtn" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition duration-200 hidden">Não</button>
+                <button id="modalOkBtn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition duration-200">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, query, where, doc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ATENÇÃO: SUBSTITUA ESTES VALORES PELAS SUAS PRÓPRIAS CREDENCIAIS DO FIREBASE!
+        // Você as obtém no Console do Firebase ao configurar seu projeto web.
+        const firebaseConfig = {
+          apiKey: "AIzaSyC-abcdefg1234567890abcdef", // Este será o seu valor real
+  authDomain: "pier41-reservas-xyz.firebaseapp.com", // Este será o seu valor real
+  projectId: "pier41-reservas-xyz", // Este será o seu valor real
+  storageBucket: "pier41-reservas-xyz.appspot.com", // Este será o seu valor real
+  messagingSenderId: "123456789012", // Este será o seu valor real
+  appId: "1:123456789012:web:abcdef1234567890abcdef" // Este será o seu valor real
+};
+        // Variáveis globais para o Firebase (serão inicializadas após o carregamento da página)
+        let app, db, auth, userId = null;
+
+        // Função para mostrar o modal de mensagens
+        function showMessage(message, type = 'info', onConfirm = null) {
+            const modal = document.getElementById('customModal');
+            const modalMessage = document.getElementById('modalMessage');
+            const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+            const modalCancelBtn = document.getElementById('modalCancelBtn');
+            const modalOkBtn = document.getElementById('modalOkBtn');
+
+            modalMessage.textContent = message;
+
+            modalConfirmBtn.onclick = null;
+            modalCancelBtn.onclick = null;
+            modalOkBtn.onclick = null;
+
+            if (type === 'confirm') {
+                modalConfirmBtn.classList.remove('hidden');
+                modalCancelBtn.classList.remove('hidden');
+                modalOkBtn.classList.add('hidden');
+
+                modalConfirmBtn.onclick = () => {
+                    if (onConfirm) onConfirm();
+                    modal.classList.add('hidden');
+                };
+                modalCancelBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                };
+            } else {
+                modalConfirmBtn.classList.add('hidden');
+                modalCancelBtn.classList.add('hidden');
+                modalOkBtn.classList.remove('hidden');
+                modalOkBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                };
+            }
+            modal.classList.remove('hidden');
+        }
+
+        // Função para esconder o modal
+        function hideModal() {
+            document.getElementById('customModal').classList.add('hidden');
+        }
+
+        // --- Componentes do Aplicativo ---
+
+        // Componente da tela inicial
+        function renderHomeScreen() {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = `
+                <div class="flex flex-col items-center justify-center space-y-6">
+                    <img
+                        src="https://placehold.co/200x200/FACC15/000000?text=PIER+41+LOGO"
+                        alt="Logo PIER 41"
+                        class="w-48 h-48 rounded-full shadow-md mb-4"
+                        onerror="this.onerror=null; this.src='image_7d5147.png';"
+                    />
+                    <h1 class="text-4xl font-bold text-gray-800 text-center">Bem-vindo ao PIER 41</h1>
+                    <p class="text-gray-600 text-center">Seu sistema de gerenciamento de reservas.</p>
+                    <div class="flex flex-col space-y-4 w-full max-w-xs">
+                        <button id="makeReservationBtn" class="bg-yellow-500 text-gray-900 font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-yellow-600 transition duration-300 transform hover:scale-105">
+                            Fazer Reserva
+                        </button>
+                        <button id="adminAreaBtn" class="bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 transform hover:scale-105">
+                            Área do Bar (Admin)
+                        </button>
+                        <button id="cancelReservationBtn" class="bg-red-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-red-600 transition duration-300 transform hover:scale-105">
+                            Cancelar Reserva
+                        </button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('makeReservationBtn').onclick = renderReserveScreen;
+            document.getElementById('adminAreaBtn').onclick = renderAdminScreen;
+            document.getElementById('cancelReservationBtn').onclick = renderCancelReservationScreen;
+        }
+
+        // Componente da tela de reserva
+        function renderReserveScreen() {
+            const appDiv = document.getElementById('app');
+            const spaces = [
+                "Sintético", "Amstel", "Amstel/TV", "Mesa Devassa",
+                "Bar dos Fundos", "Atrás da Banda", "Garden", "Mesas em volta do Palco"
+            ];
+            const spaceOptions = spaces.map(s => `<option value="${s}">${s}</option>`).join('');
+
+            appDiv.innerHTML = `
+                <div class="flex flex-col items-center p-4">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Fazer Reserva</h2>
+                    <form id="reservationForm" class="w-full max-w-md space-y-4">
+                        <div>
+                            <label for="date" class="block text-gray-700 font-medium mb-1">Data:</label>
+                            <input type="date" id="date" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <div>
+                            <label for="time" class="block text-gray-700 font-medium mb-1">Horário:</label>
+                            <input type="time" id="time" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <div>
+                            <label for="people" class="block text-gray-700 font-medium mb-1">Número de Pessoas:</label>
+                            <input type="number" id="people" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" min="1" required />
+                        </div>
+                        <div>
+                            <label for="space" class="block text-gray-700 font-medium mb-1">Espaço:</label>
+                            <select id="space" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                <option value="">Selecione um espaço</option>
+                                ${spaceOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="name" class="block text-gray-700 font-medium mb-1">Nome Completo:</label>
+                            <input type="text" id="name" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <div>
+                            <label for="phone" class="block text-gray-700 font-medium mb-1">Telefone:</label>
+                            <input type="tel" id="phone" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <button type="submit" id="confirmReservationBtn" class="w-full bg-green-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-green-600 transition duration-300 transform hover:scale-105">
+                            Confirmar Reserva
+                        </button>
+                        <button type="button" id="backToHomeBtn" class="w-full bg-gray-300 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition duration-300 transform hover:scale-105 mt-2">
+                            Voltar
+                        </button>
+                    </form>
+                </div>
+            `;
+            document.getElementById('backToHomeBtn').onclick = renderHomeScreen;
+            document.getElementById('reservationForm').onsubmit = async (e) => {
+                e.preventDefault();
+                if (!db) {
+                    showMessage("Aguarde a inicialização do sistema.", "info");
+                    return;
+                }
+
+                const date = document.getElementById('date').value;
+                const time = document.getElementById('time').value;
+                const people = document.getElementById('people').value;
+                const space = document.getElementById('space').value;
+                const name = document.getElementById('name').value;
+                const phone = document.getElementById('phone').value;
+
+                if (!date || !time || !people || !space || !name || !phone) {
+                    showMessage("Por favor, preencha todos os campos.", "info");
+                    return;
+                }
+
+                const confirmBtn = document.getElementById('confirmReservationBtn');
+                confirmBtn.textContent = 'Confirmando...';
+                confirmBtn.disabled = true;
+
+                try {
+                    const appId = firebaseConfig.appId || 'default-app-id';
+                    const reservationsCollectionRef = collection(db, `artifacts/${appId}/public/data/reservations`);
+                    await addDoc(reservationsCollectionRef, {
+                        date,
+                        time,
+                        people: parseInt(people),
+                        space,
+                        name,
+                        phone,
+                        status: 'Pendente',
+                        createdAt: new Date(),
+                        userId: userId
+                    });
+                    showMessage("Reserva confirmada com sucesso! Aguarde a aprovação do bar.", "info");
+                    renderHomeScreen();
+                } catch (error) {
+                    console.error("Erro ao adicionar reserva:", error);
+                    showMessage("Erro ao confirmar reserva. Tente novamente.", "info");
+                } finally {
+                    confirmBtn.textContent = 'Confirmar Reserva';
+                    confirmBtn.disabled = false;
+                }
+            };
+        }
+
+        // Componente para exibir o croqui do bar com as contagens de reserva
+        function renderBarLayoutReservations(reservations) {
+            const spacePositions = {
+                "Sintético": { top: 76, left: 45 },
+                "Amstel": { top: 40, left: 81 },
+                "Amstel/TV": { top: 55, left: 81 },
+                "Mesa Devassa": { top: 25, left: 81 },
+                "Bar dos Fundos": { top: 15, left: 75 },
+                "Atrás da Banda": { top: 30, left: 45 },
+                "Garden": { top: 15, left: 20 },
+                "Mesas em volta do Palco": { top: 45, left: 45 },
+            };
+
+            const spaceReservationCounts = reservations.reduce((acc, res) => {
+                if (res.status === 'Pendente' || res.status === 'Aprovado') {
+                    acc[res.space] = (acc[res.space] || 0) + 1;
+                }
+                return acc;
+            }, {});
+
+            let markersHtml = '';
+            for (const spaceName in spacePositions) {
+                const position = spacePositions[spaceName];
+                const count = spaceReservationCounts[spaceName] || 0;
+                markersHtml += `
+                    <div
+                        style="top: ${position.top}%; left: ${position.left}%; transform: translate(-50%, -50%);"
+                        class="absolute bg-blue-600 text-white text-xs font-bold rounded-full w-8 h-8 flex items-center justify-center shadow-lg border-2 border-white"
+                        title="${spaceName}: ${count} reservas"
+                    >
+                        ${count}
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="relative w-full max-w-xl mx-auto mt-8 mb-8">
+                    <img
+                        src="https://placehold.co/600x400/FACC15/000000?text=CROQUI+DO+BAR"
+                        alt="Croqui do Bar PIER 41"
+                        class="w-full h-auto rounded-lg shadow-md"
+                        onerror="this.onerror=null; this.src='image_7d496b.jpg';"
+                    />
+                    ${markersHtml}
+                </div>
+            `;
+        }
+
+        // Componente da tela de administração
+        function renderAdminScreen() {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = `
+                <div class="flex flex-col items-center p-4">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Área do Bar (Admin)</h2>
+                    <p class="text-gray-700 mb-4">ID do Usuário (Admin): <span class="font-mono text-sm break-all">${userId || 'Carregando...'}</span></p>
+
+                    <div class="w-full max-w-3xl mb-6">
+                        <label for="filterDate" class="block text-gray-700 font-medium mb-2">Filtrar por Data:</label>
+                        <input type="date" id="filterDate" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+
+                    <div id="barLayoutContainer"></div>
+
+                    <p id="loadingReservations" class="text-gray-600">Carregando reservas...</p>
+                    <p id="noReservations" class="text-gray-600 hidden">Nenhuma reserva para esta data.</p>
+                    <div class="w-full max-w-3xl overflow-x-auto">
+                        <table class="min-w-full bg-white rounded-lg shadow-md hidden" id="reservationsTable">
+                            <thead>
+                                <tr class="bg-gray-200 text-gray-700 uppercase text-sm leading-normal">
+                                    <th class="py-3 px-6 text-left">Horário</th>
+                                    <th class="py-3 px-6 text-left">Cliente</th>
+                                    <th class="py-3 px-6 text-left">Pessoas</th>
+                                    <th class="py-3 px-6 text-left">Espaço</th>
+                                    <th class="py-3 px-6 text-left">Status</th>
+                                    <th class="py-3 px-6 text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-600 text-sm font-light" id="reservationsTableBody">
+                                <!-- Reservas serão inseridas aqui -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <button id="backToHomeAdminBtn" class="bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105 mt-6">
+                        Voltar
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('backToHomeAdminBtn').onclick = renderHomeScreen;
+            const filterDateInput = document.getElementById('filterDate');
+            filterDateInput.value = new Date().toISOString().split('T')[0]; // Define a data atual
+
+            let unsubscribeReservations = null;
+
+            const fetchAndRenderReservations = async (date) => {
+                if (unsubscribeReservations) {
+                    unsubscribeReservations(); // Desinscreve-se da escuta anterior
+                }
+
+                if (!db) {
+                    showMessage("Sistema não inicializado.", "info");
+                    return;
+                }
+
+                document.getElementById('loadingReservations').classList.remove('hidden');
+                document.getElementById('noReservations').classList.add('hidden');
+                document.getElementById('reservationsTable').classList.add('hidden');
+                document.getElementById('reservationsTableBody').innerHTML = '';
+
+                const appId = firebaseConfig.appId || 'default-app-id';
+                const reservationsCollectionRef = collection(db, `artifacts/${appId}/public/data/reservations`);
+                const q = query(reservationsCollectionRef, where("date", "==", date));
+
+                unsubscribeReservations = onSnapshot(q, (snapshot) => {
+                    const fetchedReservations = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    fetchedReservations.sort((a, b) => a.time.localeCompare(b.time));
+
+                    document.getElementById('loadingReservations').classList.add('hidden');
+
+                    if (fetchedReservations.length === 0) {
+                        document.getElementById('noReservations').classList.remove('hidden');
+                        document.getElementById('reservationsTable').classList.add('hidden');
+                    } else {
+                        document.getElementById('noReservations').classList.add('hidden');
+                        document.getElementById('reservationsTable').classList.remove('hidden');
+                        renderReservationsTable(fetchedReservations);
+                        document.getElementById('barLayoutContainer').innerHTML = renderBarLayoutReservations(fetchedReservations);
+                    }
+                }, (error) => {
+                    console.error("Erro ao buscar reservas:", error);
+                    showMessage("Erro ao carregar reservas. Tente novamente.", "info");
+                    document.getElementById('loadingReservations').classList.add('hidden');
+                    document.getElementById('noReservations').classList.remove('hidden');
+                });
+            };
+
+            const renderReservationsTable = (reservations) => {
+                const tbody = document.getElementById('reservationsTableBody');
+                tbody.innerHTML = ''; // Limpa a tabela antes de renderizar
+
+                reservations.forEach(res => {
+                    const statusClass = res.status === 'Aprovado' ? 'bg-green-200 text-green-800' :
+                                        res.status === 'Negado' ? 'bg-red-200 text-red-800' :
+                                        'bg-yellow-200 text-yellow-800';
+                    const row = document.createElement('tr');
+                    row.className = "border-b border-gray-200 hover:bg-gray-100";
+                    row.innerHTML = `
+                        <td class="py-3 px-6 text-left whitespace-nowrap">${res.time}</td>
+                        <td class="py-3 px-6 text-left">
+                            <div class="font-medium">${res.name}</div>
+                            <div class="text-xs text-gray-500">${res.phone}</div>
+                        </td>
+                        <td class="py-3 px-6 text-left">${res.people}</td>
+                        <td class="py-3 px-6 text-left">${res.space}</td>
+                        <td class="py-3 px-6 text-left">
+                            <span class="py-1 px-3 rounded-full text-xs font-semibold ${statusClass}">
+                                ${res.status}
+                            </span>
+                        </td>
+                        <td class="py-3 px-6 text-center">
+                            <div class="flex item-center justify-center space-x-2">
+                                ${res.status !== 'Aprovado' ? `<button class="bg-green-500 text-white p-2 rounded-full hover:bg-green-600 transition duration-200 approve-btn" data-id="${res.id}" title="Aprovar">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>` : ''}
+                                ${res.status !== 'Negado' ? `<button class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition duration-200 deny-btn" data-id="${res.id}" title="Negar">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>` : ''}
+                                <button class="bg-gray-500 text-white p-2 rounded-full hover:bg-gray-600 transition duration-200 delete-btn" data-id="${res.id}" title="Excluir">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 11-2 0v6a1 1 0 112 0V8z" clip-rule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                // Adiciona listeners aos botões de ação
+                document.querySelectorAll('.approve-btn').forEach(button => {
+                    button.onclick = (e) => updateReservationStatus(e.currentTarget.dataset.id, 'Aprovado');
+                });
+                document.querySelectorAll('.deny-btn').forEach(button => {
+                    button.onclick = (e) => updateReservationStatus(e.currentTarget.dataset.id, 'Negado');
+                });
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.onclick = (e) => handleDeleteReservation(e.currentTarget.dataset.id);
+                });
+            };
+
+            const updateReservationStatus = async (id, newStatus) => {
+                if (!db) {
+                    showMessage("Sistema não inicializado.", "info");
+                    return;
+                }
+                showMessage("Aguarde...", "info"); // Mostrar mensagem de carregamento
+                try {
+                    const appId = firebaseConfig.appId || 'default-app-id';
+                    const reservationDocRef = doc(db, `artifacts/${appId}/public/data/reservations`, id);
+                    await updateDoc(reservationDocRef, { status: newStatus });
+                    showMessage(`Reserva ${newStatus.toLowerCase()} com sucesso!`, "info");
+                } catch (error) {
+                    console.error("Erro ao atualizar status da reserva:", error);
+                    showMessage("Erro ao atualizar status da reserva. Tente novamente.", "info");
+                }
+            };
+
+            const handleDeleteReservation = async (id) => {
+                if (!db) {
+                    showMessage("Sistema não inicializado.", "info");
+                    return;
+                }
+                showMessage("Tem certeza que deseja excluir esta reserva?", "confirm", async () => {
+                    showMessage("Aguarde...", "info"); // Mostrar mensagem de carregamento
+                    try {
+                        const appId = firebaseConfig.appId || 'default-app-id';
+                        const reservationDocRef = doc(db, `artifacts/${appId}/public/data/reservations`, id);
+                        await deleteDoc(reservationDocRef);
+                        showMessage("Reserva excluída com sucesso!", "info");
+                    } catch (error) {
+                        console.error("Erro ao excluir reserva:", error);
+                        showMessage("Erro ao excluir reserva. Tente novamente.", "info");
+                    }
+                });
+            };
+
+            filterDateInput.onchange = (e) => fetchAndRenderReservations(e.target.value);
+            fetchAndRenderReservations(filterDateInput.value); // Carrega as reservas iniciais
+        }
+
+        // Componente para cancelar reserva
+        function renderCancelReservationScreen() {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = `
+                <div class="flex flex-col items-center p-4">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-6">Cancelar Reserva</h2>
+                    <form id="cancelReservationForm" class="w-full max-w-md space-y-4 mb-6">
+                        <div>
+                            <label for="phoneSearch" class="block text-gray-700 font-medium mb-1">Telefone da Reserva:</label>
+                            <input type="tel" id="phoneSearch" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+                        </div>
+                        <button type="submit" id="searchReservationsBtn" class="w-full bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 transition duration-300 transform hover:scale-105">
+                            Buscar Minhas Reservas
+                        </button>
+                    </form>
+
+                    <p id="cancelLoading" class="text-gray-600 hidden">Buscando reservas...</p>
+                    <p id="cancelNoReservations" class="text-gray-600 hidden">Nenhuma reserva encontrada para este telefone.</p>
+                    <div class="w-full max-w-3xl overflow-x-auto">
+                        <table class="min-w-full bg-white rounded-lg shadow-md hidden" id="cancelReservationsTable">
+                            <thead>
+                                <tr class="bg-gray-200 text-gray-700 uppercase text-sm leading-normal">
+                                    <th class="py-3 px-6 text-left">Data</th>
+                                    <th class="py-3 px-6 text-left">Horário</th>
+                                    <th class="py-3 px-6 text-left">Pessoas</th>
+                                    <th class="py-3 px-6 text-left">Espaço</th>
+                                    <th class="py-3 px-6 text-left">Status</th>
+                                    <th class="py-3 px-6 text-center">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-600 text-sm font-light" id="cancelReservationsTableBody">
+                                <!-- Reservas serão inseridas aqui -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <button id="backToHomeCancelBtn" class="bg-gray-300 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-gray-400 transition duration-300 transform hover:scale-105 mt-6">
+                        Voltar
+                    </button>
+                </div>
+            `;
+
+            document.getElementById('backToHomeCancelBtn').onclick = renderHomeScreen;
+
+            const cancelReservationForm = document.getElementById('cancelReservationForm');
+            cancelReservationForm.onsubmit = async (e) => {
+                e.preventDefault();
+                if (!db) {
+                    showMessage("Sistema não inicializado.", "info");
+                    return;
+                }
+
+                const phone = document.getElementById('phoneSearch').value;
+                if (!phone) {
+                    showMessage("Por favor, insira o número de telefone.", "info");
+                    return;
+                }
+
+                document.getElementById('cancelLoading').classList.remove('hidden');
+                document.getElementById('cancelNoReservations').classList.add('hidden');
+                document.getElementById('cancelReservationsTable').classList.add('hidden');
+                document.getElementById('cancelReservationsTableBody').innerHTML = '';
+
+                const searchBtn = document.getElementById('searchReservationsBtn');
+                searchBtn.textContent = 'Buscando...';
+                searchBtn.disabled = true;
+
+                try {
+                    const appId = firebaseConfig.appId || 'default-app-id';
+                    const reservationsCollectionRef = collection(db, `artifacts/${appId}/public/data/reservations`);
+                    const q = query(reservationsCollectionRef, where("phone", "==", phone));
+                    const querySnapshot = await getDocs(q);
+                    const fetchedReservations = querySnapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+
+                    document.getElementById('cancelLoading').classList.add('hidden');
+
+                    if (fetchedReservations.length === 0) {
+                        document.getElementById('cancelNoReservations').classList.remove('hidden');
+                    } else {
+                        document.getElementById('cancelReservationsTable').classList.remove('hidden');
+                        renderCancelReservationsTable(fetchedReservations);
+                    }
+                } catch (error) {
+                    console.error("Erro ao buscar reservas para cancelamento:", error);
+                    showMessage("Erro ao buscar reservas. Tente novamente.", "info");
+                    document.getElementById('cancelLoading').classList.add('hidden');
+                    document.getElementById('cancelNoReservations').classList.remove('hidden');
+                } finally {
+                    searchBtn.textContent = 'Buscar Minhas Reservas';
+                    searchBtn.disabled = false;
+                }
+            };
+
+            const renderCancelReservationsTable = (reservations) => {
+                const tbody = document.getElementById('cancelReservationsTableBody');
+                tbody.innerHTML = ''; // Limpa a tabela antes de renderizar
+
+                reservations.forEach(res => {
+                    const statusClass = res.status === 'Aprovado' ? 'bg-green-200 text-green-800' :
+                                        res.status === 'Negado' ? 'bg-red-200 text-red-800' :
+                                        'bg-yellow-200 text-yellow-800';
+                    const row = document.createElement('tr');
+                    row.className = "border-b border-gray-200 hover:bg-gray-100";
+                    row.innerHTML = `
+                        <td class="py-3 px-6 text-left whitespace-nowrap">${res.date}</td>
+                        <td class="py-3 px-6 text-left">${res.time}</td>
+                        <td class="py-3 px-6 text-left">${res.people}</td>
+                        <td class="py-3 px-6 text-left">${res.space}</td>
+                        <td class="py-3 px-6 text-left">
+                            <span class="py-1 px-3 rounded-full text-xs font-semibold ${statusClass}">
+                                ${res.status}
+                            </span>
+                        </td>
+                        <td class="py-3 px-6 text-center">
+                            <button class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition duration-200 cancel-reservation-btn" data-id="${res.id}" title="Cancelar">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 11-2 0v6a1 1 0 112 0V8z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                document.querySelectorAll('.cancel-reservation-btn').forEach(button => {
+                    button.onclick = (e) => handleDeleteReservation(e.currentTarget.dataset.id);
+                });
+            };
+
+            const handleDeleteReservation = async (id) => {
+                if (!db) {
+                    showMessage("Sistema não inicializado.", "info");
+                    return;
+                }
+                showMessage("Tem certeza que deseja cancelar esta reserva?", "confirm", async () => {
+                    document.getElementById('cancelLoading').classList.remove('hidden');
+                    try {
+                        const appId = firebaseConfig.appId || 'default-app-id';
+                        const reservationDocRef = doc(db, `artifacts/${appId}/public/data/reservations`, id);
+                        await deleteDoc(reservationDocRef);
+                        showMessage("Reserva cancelada com sucesso!", "info");
+                        // Re-fetch reservations after deletion to update the list
+                        const phone = document.getElementById('phoneSearch').value;
+                        if (phone) {
+                            const reservationsCollectionRef = collection(db, `artifacts/${appId}/public/data/reservations`);
+                            const q = query(reservationsCollectionRef, where("phone", "==", phone));
+                            const querySnapshot = await getDocs(q);
+                            const updatedReservations = querySnapshot.docs.map(doc => ({
+                                id: doc.id,
+                                ...doc.data()
+                            }));
+                            if (updatedReservations.length === 0) {
+                                document.getElementById('cancelNoReservations').classList.remove('hidden');
+                                document.getElementById('cancelReservationsTable').classList.add('hidden');
+                            } else {
+                                renderCancelReservationsTable(updatedReservations);
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Erro ao cancelar reserva:", error);
+                        showMessage("Erro ao cancelar reserva. Tente novamente.", "info");
+                    } finally {
+                        document.getElementById('cancelLoading').classList.add('hidden');
+                    }
+                });
+            };
+        }
+
+        // Inicialização do Firebase e renderização da tela inicial
+        window.onload = function() {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                } else {
+                    try {
+                        // Tenta fazer login anonimamente se não houver token inicial
+                        await signInAnonymously(auth);
+                        userId = auth.currentUser.uid;
+                    } catch (error) {
+                        console.error("Erro ao fazer login anônimo:", error);
+                        userId = crypto.randomUUID(); // Fallback para um ID aleatório
+                    }
+                }
+                renderHomeScreen(); // Renderiza a tela inicial após a autenticação
+            });
+        };
+    </script>
+</body>
+</html>
