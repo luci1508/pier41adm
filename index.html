@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>PIER 41 - Reservas</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      text-align: center;
+      padding: 20px;
+    }
+
+    #logo {
+      width: 150px;
+      margin-bottom: 20px;
+    }
+
+    #croqui {
+      max-width: 100%;
+      margin-top: 20px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    .section {
+      display: none;
+      margin-top: 30px;
+    }
+
+    .visible {
+      display: block;
+    }
+
+    input, select, textarea {
+      display: block;
+      margin: 10px auto;
+      padding: 8px;
+      width: 80%;
+      max-width: 400px;
+      font-size: 16px;
+    }
+
+    .reserva {
+      background-color: #fff;
+      border: 1px solid #ccc;
+      padding: 15px;
+      margin: 10px auto;
+      width: 90%;
+      max-width: 500px;
+      text-align: left;
+    }
+
+    h2 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LOGO -->
+  <img id="logo" src="logo.png" alt="Logo do PIER 41">
+
+  <!-- BOTÕES PRINCIPAIS -->
+  <button onclick="mostrar('reserva')">Fazer Reserva</button>
+  <button onclick="mostrar('consultar')">Consultar Reservas</button>
+  <button onclick="mostrar('cancelar')">Cancelar Reserva</button>
+
+  <!-- CROQUI -->
+  <img id="croqui" src="croqui.jpg" alt="Mapa do bar">
+
+  <!-- TELA: FAZER RESERVA -->
+  <div id="reserva" class="section">
+    <h2>Fazer Reserva</h2>
+    <input type="date" id="dataReserva">
+    <input type="number" id="numPessoas" placeholder="Número de pessoas">
+    <select id="espaco">
+      <option disabled selected>Escolha o espaço</option>
+      <option>Garden</option>
+      <option>Bar dos Fundos</option>
+      <option>Atrás da Banda</option>
+      <option>Mesas ao Redor da Banda</option>
+      <option>Amstel</option>
+      <option>Amstel TV</option>
+      <option>Mesa Devassa</option>
+      <option>Sintético</option>
+    </select>
+    <input type="text" id="nomeCliente" placeholder="Nome do cliente">
+    <input type="text" id="telefoneCliente" placeholder="Telefone">
+    <button onclick="confirmarReserva()">Confirmar Reserva</button>
+  </div>
+
+  <!-- TELA: CONSULTAR RESERVAS -->
+  <div id="consultar" class="section">
+    <h2>Reservas por Data</h2>
+    <input type="date" id="consultaData" onchange="mostrarReservas()">
+    <div id="listaReservas"></div>
+  </div>
+
+  <!-- TELA: CANCELAR RESERVA -->
+  <div id="cancelar" class="section">
+    <h2>Cancelar Reserva</h2>
+    <input type="text" id="cancelarNome" placeholder="Nome do cliente (opcional)">
+    <input type="date" id="cancelarData">
+    <textarea id="motivoCancelamento" placeholder="Motivo do cancelamento"></textarea>
+    <button onclick="cancelarReserva()">Confirmar Cancelamento</button>
+  </div>
+
+  <!-- SCRIPT COM LOCALSTORAGE -->
+  <script>
+    // Carrega reservas do localStorage
+    let reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+
+    function salvarReservas() {
+      localStorage.setItem("reservas", JSON.stringify(reservas));
+    }
+
+    function mostrar(id) {
+      document.querySelectorAll('.section').forEach(sec => sec.classList.remove('visible'));
+      document.getElementById(id).classList.add('visible');
+    }
+
+    function confirmarReserva() {
+      const data = document.getElementById('dataReserva').value;
+      const pessoas = document.getElementById('numPessoas').value;
+      const espaco = document.getElementById('espaco').value;
+      const nome = document.getElementById('nomeCliente').value;
+      const telefone = document.getElementById('telefoneCliente').value;
+
+      if (!data || !pessoas || !espaco || !nome || !telefone) {
+        alert("Preencha todos os campos.");
+        return;
+      }
+
+      const reserva = { data, pessoas, espaco, nome, telefone };
+      reservas.push(reserva);
+      salvarReservas();
+      alert("Reserva confirmada!");
+    }
+
+    function mostrarReservas() {
+      const data = document.getElementById('consultaData').value;
+      const container = document.getElementById('listaReservas');
+      container.innerHTML = "";
+
+      const resultados = reservas.filter(r => r.data === data);
+
+      if (resultados.length === 0) {
+        container.innerHTML = "Nenhuma reserva encontrada para esta data.";
+        return;
+      }
+
+      resultados.forEach(r => {
+        container.innerHTML += `
+          <div class="reserva">
+            <strong>${r.nome}</strong><br>
+            Espaço: ${r.espaco}<br>
+            Pessoas: ${r.pessoas}<br>
+            Telefone: ${r.telefone}
+          </div>`;
+      });
+    }
+
+    function cancelarReserva() {
+      const nome = document.getElementById('cancelarNome').value.trim();
+      const data = document.getElementById('cancelarData').value;
+      const motivo = document.getElementById('motivoCancelamento').value.trim();
+
+      const antes = reservas.length;
+      reservas = reservas.filter(r => !(r.data === data && (nome === "" || r.nome === nome)));
+      const depois = reservas.length;
+
+      salvarReservas();
+
+      if (depois < antes) {
+        alert(`Reserva cancelada com sucesso.\nMotivo: ${motivo}`);
+      } else {
+        alert("Nenhuma reserva encontrada com esses dados.");
+      }
+    }
+  </script>
+</body>
+</html>
